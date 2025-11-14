@@ -3,8 +3,10 @@ package com.example.addon.modules;
 import com.example.addon.AddonTemplate;
 import meteordevelopment.meteorclient.events.game.OpenScreenEvent;
 import meteordevelopment.meteorclient.events.world.TickEvent;
+import meteordevelopment.meteorclient.events.game.GameJoinedEvent;
 import meteordevelopment.meteorclient.settings.*;
 import meteordevelopment.meteorclient.systems.modules.Module;
+import meteordevelopment.meteorclient.systems.modules.Modules;
 import meteordevelopment.meteorclient.utils.player.ChatUtils;
 import meteordevelopment.orbit.EventHandler;
 import net.minecraft.block.entity.BlockEntity;
@@ -177,6 +179,27 @@ public class ChestScanner extends Module {
         .build()
     );
     
+    private final Setting<Boolean> newFilePerSession = sgSaving.add(new BoolSetting.Builder()
+        .name("new-file-per-session")
+        .description("Create a new CSV file each time you connect to a server.")
+        .defaultValue(true)
+        .build()
+    );
+    
+    private final Setting<Boolean> includeServerName = sgSaving.add(new BoolSetting.Builder()
+        .name("include-server-name")
+        .description("Include server name/IP in the filename.")
+        .defaultValue(true)
+        .build()
+    );
+    
+    private final Setting<Boolean> autoUpdatePrices = sgSaving.add(new BoolSetting.Builder()
+        .name("auto-update-prices")
+        .description("Automatically update price analysis when saving new scan data.")
+        .defaultValue(true)
+        .build()
+    );
+    
     public enum SaveFormat {
         JSON, CSV, TXT
     }
@@ -186,9 +209,54 @@ public class ChestScanner extends Module {
     private int tickCounter = 0;
     private GenericContainerScreen pendingScreen = null;
     private int screenScanDelay = 0;
+    private String currentSessionFile = null;
+    private String currentServerName = null;
     
     public ChestScanner() {
         super(AddonTemplate.CATEGORY, "chest-scanner", "Scans and displays information about items in chests.");
+    }
+    
+    @EventHandler
+    private void onGameJoined(GameJoinedEvent event) {
+        if (!newFilePerSession.get()) return;
+        
+        // Create new session file when joining a server
+        try {
+            String serverName = "singleplayer";
+            
+            // Try to get server name/IP
+            if (mc.getCurrentServerEntry() != null) {
+                serverName = mc.getCurrentServerEntry().address;
+                // Clean up server name for filename
+                serverName = serverName.replaceAll("[^a-zA-Z0-9.-]", "_");
+            } else if (mc.isInSingleplayer() && mc.getServer() != null) {
+                serverName = "singleplayer";
+            }
+            
+            currentServerName = serverName;
+            
+            // Generate session filename
+            String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss"));
+            
+            if (includeServerName.get()) {
+                currentSessionFile = String.format("%s_%s_%s.csv", singleFileName.get(), serverName, timestamp);
+            } else {
+                currentSessionFile = String.format("%s_%s.csv", singleFileName.get(), timestamp);
+            }
+            
+            ChatUtils.info("New scan session started: " + currentSessionFile);
+            
+            if (debugMode.get()) {
+                ChatUtils.info("Server: " + serverName);
+                ChatUtils.info("Session file: " + currentSessionFile);
+            }
+            
+        } catch (Exception e) {
+            ChatUtils.error("Error setting up new session file: " + e.getMessage());
+            if (debugMode.get()) {
+                e.printStackTrace();
+            }
+        }
     }
     
     @EventHandler
@@ -707,7 +775,7 @@ public class ChestScanner extends Module {
     }
     
     private String formatItemAsCSV(ItemStack stack) {
-        if (stack.isEmpty()) return "\"\",0,\"\",\"\",\"\",\"\"";
+        if (stack.isEmpty()) return "\"\",0,\"\",\"\",\"\",\"\",\"\"";
         
         StringBuilder csv = new StringBuilder();
         csv.append("\"").append(stack.getItem().getName().getString().replace("\"", "\"\"")).append("\",");
@@ -726,19 +794,53 @@ public class ChestScanner extends Module {
             csv.append("\"\",");
         }
         
-        // Add simplified NBT/lore info
+        // Add lore data
+        csv.append("\"").append(getLoreString(stack).replace("\"", "\"\"")).append("\",");
+        
+        // Add simplified NBT/custom name info
         try {
+            StringBuilder nbtInfo = new StringBuilder();
+            
+            // Check for custom name
+            Text customName = stack.get(DataComponentTypes.CUSTOM_NAME);
+            if (customName != null) {
+                nbtInfo.append("Custom Name: ").append(customName.getString()).append(" | ");
+            }
+            
+            // Check for NBT data
             NbtComponent customData = stack.get(DataComponentTypes.CUSTOM_DATA);
             if (customData != null && !customData.copyNbt().isEmpty()) {
-                csv.append("\"Has NBT Data\"");
-            } else {
-                csv.append("\"\"");
+                nbtInfo.append("NBT: ").append(customData.copyNbt().toString());
             }
+            
+            csv.append("\"").append(nbtInfo.toString().replace("\"", "\"\"")).append("\"");
         } catch (Exception e) {
             csv.append("\"\"");
         }
         
         return csv.toString();
+    }
+    
+    private String getLoreString(ItemStack stack) {
+        if (stack.isEmpty()) return "";
+        
+        try {
+            LoreComponent lore = stack.get(DataComponentTypes.LORE);
+            if (lore != null && !lore.lines().isEmpty()) {
+                StringBuilder loreText = new StringBuilder();
+                for (int i = 0; i < lore.lines().size(); i++) {
+                    if (i > 0) loreText.append(" | ");
+                    loreText.append(lore.lines().get(i).getString());
+                }
+                return loreText.toString();
+            }
+        } catch (Exception e) {
+            if (debugMode.get()) {
+                ChatUtils.error("Error reading lore for CSV: " + e.getMessage());
+            }
+        }
+        
+        return "";
     }
     
     private String formatItemAsText(ItemStack stack) {
@@ -789,7 +891,14 @@ public class ChestScanner extends Module {
     }
     
     private void saveToCombinedCSV(String data, BlockPos pos, String containerType, Path saveDir) throws IOException {
-        String filename = singleFileName.get() + ".csv";
+        String filename;
+        
+        if (newFilePerSession.get() && currentSessionFile != null) {
+            filename = currentSessionFile;
+        } else {
+            filename = singleFileName.get() + ".csv";
+        }
+        
         Path filePath = saveDir.resolve(filename);
         
         boolean fileExists = Files.exists(filePath);
@@ -797,11 +906,12 @@ public class ChestScanner extends Module {
         try (FileWriter writer = new FileWriter(filePath.toFile(), true)) { // Append mode
             // Add header if file doesn't exist
             if (!fileExists) {
-                writer.write("Timestamp,Container_Type,Location_X,Location_Y,Location_Z,Slot,Name,Count,Rarity,Durability,Enchantments,NBT\n");
+                writer.write("Timestamp,Server,Container_Type,Location_X,Location_Y,Location_Z,Slot,Name,Count,Rarity,Durability,Enchantments,Lore,NBT\n");
             }
             
             // Parse the data to extract items
             String timestamp = LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+            String serverName = currentServerName != null ? currentServerName : "unknown";
             String locationX = pos != null ? String.valueOf(pos.getX()) : "";
             String locationY = pos != null ? String.valueOf(pos.getY()) : "";
             String locationZ = pos != null ? String.valueOf(pos.getZ()) : "";
@@ -814,15 +924,20 @@ public class ChestScanner extends Module {
                 if (line.startsWith("Slot ") && line.contains(": ")) {
                     String itemData = line.substring(line.indexOf(": ") + 2);
                     
-                    // Write timestamp and location info before each item
-                    writer.write(String.format("\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",%d,%s\n",
-                        timestamp, containerType, locationX, locationY, locationZ, slotNumber, itemData));
+                    // Write timestamp, server, and location info before each item
+                    writer.write(String.format("\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",%d,%s\n",
+                        timestamp, serverName, containerType, locationX, locationY, locationZ, slotNumber, itemData));
                     slotNumber++;
                 }
             }
         }
         
         ChatUtils.info("Scan results appended to: " + filename);
+        
+        // Auto-update price analysis if enabled
+        if (autoUpdatePrices.get()) {
+            updatePriceAnalysis();
+        }
         
         if (debugMode.get()) {
             ChatUtils.info("Full path: " + filePath.toAbsolutePath().toString());
@@ -840,7 +955,7 @@ public class ChestScanner extends Module {
         
         // Add CSV header if needed
         if (saveFormat.get() == SaveFormat.CSV) {
-            data = "Name,Count,Rarity,Durability,Enchantments,NBT\n" + data;
+            data = "Name,Count,Rarity,Durability,Enchantments,Lore,NBT\n" + data;
         }
         
         // Write to file
@@ -853,6 +968,30 @@ public class ChestScanner extends Module {
         if (debugMode.get()) {
             ChatUtils.info("Full path: " + filePath.toAbsolutePath().toString());
             ChatUtils.info("Data length: " + data.length() + " characters");
+        }
+    }
+    
+    // Auto-update price analysis
+    private void updatePriceAnalysis() {
+        try {
+            PriceAnalyzer analyzer = Modules.get().get(PriceAnalyzer.class);
+            if (analyzer != null && analyzer.isActive()) {
+                // Trigger analysis in the background
+                new Thread(() -> {
+                    try {
+                        Thread.sleep(1000); // Wait a second for file to be written
+                        analyzer.analyzeCSV();
+                    } catch (Exception e) {
+                        if (debugMode.get()) {
+                            ChatUtils.error("Error updating price analysis: " + e.getMessage());
+                        }
+                    }
+                }).start();
+            }
+        } catch (Exception e) {
+            if (debugMode.get()) {
+                ChatUtils.error("Error accessing price analyzer: " + e.getMessage());
+            }
         }
     }
 }
