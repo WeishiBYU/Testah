@@ -845,14 +845,14 @@ public class PriceAnalyzer extends Module {
     }
     
     private void info(String message) {
-        ChatUtils.info("Price Analyzer", message);
+        meteordevelopment.meteorclient.utils.player.ChatUtils.info("[Price Analyzer] " + message);
     }
     
     private void warning(String message) {
-        ChatUtils.warning("Price Analyzer", message);
+        meteordevelopment.meteorclient.utils.player.ChatUtils.warning("[Price Analyzer] " + message);
     }
     
     private void error(String message) {
-        ChatUtils.error("Price Analyzer", message);
+        meteordevelopment.meteorclient.utils.player.ChatUtils.error("[Price Analyzer] " + message);
     }
 }

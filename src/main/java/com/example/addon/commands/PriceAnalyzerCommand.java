@@ -147,6 +147,34 @@ public class PriceAnalyzerCommand extends Command {
                             info("Module active: " + (analyzer.isActive() ? "YES" : "NO"));
                             info("Analysis data: " + (analyzer.hasAnalysisData() ? "AVAILABLE" : "NONE"));
                             info("CSV data: " + (analyzer.hasCSVData() ? "AVAILABLE" : "NONE"));
+                            
+                            // Test basic display functionality
+                            info("--- Testing Display Functions ---");
+                            try {
+                                info("Testing info message display...");
+                                info("Testing warning message display...");
+                                warning("This is a warning test");
+                                info("Testing error message display...");
+                                error("This is an error test (not a real error)");
+                                
+                                // Test price lookup
+                                info("--- Testing Price Lookup ---");
+                                if (analyzer.hasAnalysisData()) {
+                                    info("Attempting to look up 'Diamond' price...");
+                                    analyzer.getItemPrice("Diamond");
+                                } else {
+                                    warning("No analysis data available for price lookup test");
+                                }
+                                
+                                // Test status display
+                                info("--- Testing Status Display ---");
+                                analyzer.showStatus();
+                                
+                            } catch (Exception displayException) {
+                                error("Display test failed: " + displayException.getMessage());
+                                displayException.printStackTrace();
+                            }
+                            
                             info("=== Test completed successfully! ===");
                         } else {
                             error("Module is null - this should not happen!");
@@ -158,10 +186,43 @@ public class PriceAnalyzerCommand extends Command {
                     
                     return SINGLE_SUCCESS;
                 }))
+            .then(literal("debug")
+                .executes(context -> {
+                    try {
+                        // Direct debug test
+                        meteordevelopment.meteorclient.utils.player.ChatUtils.info("Direct ChatUtils test - THIS IS A DEBUG MESSAGE");
+                        
+                        PriceAnalyzer analyzer = Modules.get().get(PriceAnalyzer.class);
+                        if (analyzer == null) {
+                            meteordevelopment.meteorclient.utils.player.ChatUtils.error("ERROR: Analyzer module is null");
+                            return SINGLE_SUCCESS;
+                        }
+                        
+                        meteordevelopment.meteorclient.utils.player.ChatUtils.info("DEBUG: Module found - " + analyzer.getClass().getSimpleName());
+                        meteordevelopment.meteorclient.utils.player.ChatUtils.info("DEBUG: Module active - " + analyzer.isActive());
+                        meteordevelopment.meteorclient.utils.player.ChatUtils.warning("DEBUG: Warning test message");
+                        meteordevelopment.meteorclient.utils.player.ChatUtils.error("DEBUG: Error test message");
+                        
+                        if (analyzer.hasAnalysisData()) {
+                            meteordevelopment.meteorclient.utils.player.ChatUtils.info("DEBUG: Analysis data available");
+                        } else {
+                            meteordevelopment.meteorclient.utils.player.ChatUtils.warning("DEBUG: No analysis data available");
+                        }
+                        
+                        meteordevelopment.meteorclient.utils.player.ChatUtils.info("DEBUG: Test complete - all messages should appear in chat");
+                        
+                    } catch (Exception e) {
+                        meteordevelopment.meteorclient.utils.player.ChatUtils.error("DEBUG FAILED: " + e.getMessage());
+                        e.printStackTrace();
+                    }
+                    
+                    return SINGLE_SUCCESS;
+                }))
             .then(literal("help")
                 .executes(context -> {
                     info("=== Price Analyzer Commands ===");
                     info(".price-analyzer test - Test if everything is working");
+                    info(".price-analyzer debug - Direct debug test with ChatUtils");
                     info(".price-analyzer status - Show analyzer status and debug info");
                     info(".price-analyzer analyze - Analyze the CSV file");
                     info(".price-analyzer export - Export price analysis to CSV");
@@ -228,14 +289,14 @@ public class PriceAnalyzerCommand extends Command {
     }
     
     private void warning(String message) {
-        ChatUtils.warning("Price Analyzer", message);
+        meteordevelopment.meteorclient.utils.player.ChatUtils.warning("[Price Analyzer] " + message);
     }
     
     private void info(String message) {
-        ChatUtils.info("Price Analyzer", message);
+        meteordevelopment.meteorclient.utils.player.ChatUtils.info("[Price Analyzer] " + message);
     }
     
     private void error(String message) {
-        ChatUtils.error("Price Analyzer", message);
+        meteordevelopment.meteorclient.utils.player.ChatUtils.error("[Price Analyzer] " + message);
     }
 }
