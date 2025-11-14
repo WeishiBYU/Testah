@@ -23,5 +23,27 @@ public class ChestScanCommand extends Command {
             chestScanner.manualScan();
             return SINGLE_SUCCESS;
         });
+        
+        builder.then(literal("test-save").executes(context -> {
+            ChestScanner chestScanner = Modules.get().get(ChestScanner.class);
+            if (chestScanner == null) {
+                error("ChestScanner module not found.");
+                return SINGLE_SUCCESS;
+            }
+            
+            chestScanner.testSaveFunction();
+            return SINGLE_SUCCESS;
+        }));
+        
+        builder.then(literal("save-location").executes(context -> {
+            ChestScanner chestScanner = Modules.get().get(ChestScanner.class);
+            if (chestScanner == null) {
+                error("ChestScanner module not found.");
+                return SINGLE_SUCCESS;
+            }
+            
+            chestScanner.showSaveLocation();
+            return SINGLE_SUCCESS;
+        }));
     }
 }
